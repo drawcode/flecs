@@ -289,7 +289,9 @@
                 "set_sparse",
                 "insert_1_sparse",
                 "insert_2_w_1_sparse",
-                "emplace_sparse"
+                "emplace_sparse",
+                "override_sparse",
+                "delete_w_override_sparse"
             ]
         }, {
             "id": "Pairs",
@@ -433,7 +435,17 @@
                 "alias_entity",
                 "alias_entity_by_name",
                 "alias_entity_by_scoped_name",
-                "alias_entity_empty"
+                "alias_entity_empty",
+                "id_from_str_0_entity",
+                "id_from_str_entity_from_str",
+                "id_from_str_unresolved_entity_from_str",
+                "id_from_str_scoped_entity_from_str",
+                "id_from_str_template_entity_from_str",
+                "id_from_str_pair_from_str",
+                "id_from_str_unresolved_pair_from_str",
+                "id_from_str_wildcard_pair_from_str",
+                "id_from_str_any_pair_from_str",
+                "id_from_str_invalid_pair"
             ]
         }, {
             "id": "System",
@@ -472,6 +484,7 @@
                 "each_w_mut_children_it",
                 "readonly_children_iter",
                 "rate_filter",
+                "self_rate_filter",
                 "update_rate_filter",
                 "default_ctor",
                 "test_auto_defer_each",
@@ -508,7 +521,8 @@
                 "register_twice_w_each",
                 "register_twice_w_run",
                 "register_twice_w_run_each",
-                "register_twice_w_each_run"
+                "register_twice_w_each_run",
+                "run_w_0_src_query"
             ]
         }, {
             "id": "Event",
@@ -664,7 +678,9 @@
                 "run_w_iter_fini_empty",
                 "run_w_iter_fini_no_query",
                 "add_to_match_from_staged_query",
-                "add_to_match_from_staged_query_readonly_threaded"
+                "add_to_match_from_staged_query_readonly_threaded",
+                "pair_with_variable_src",
+                "pair_with_variable_src_no_row_fields"
             ]
         }, {
             "id": "QueryBuilder",
@@ -771,6 +787,7 @@
                 "with_pair_components",
                 "with_pair_component_id",
                 "with_pair_component_name",
+                "with_pair_name_component_id",
                 "with_enum",
                 "without_id",
                 "without_name",
@@ -780,6 +797,7 @@
                 "without_pair_components",
                 "without_pair_component_id",
                 "without_pair_component_name",
+                "without_pair_name_component_id",
                 "without_enum",
                 "write_id",
                 "write_name",
@@ -879,6 +897,9 @@
                 "create_w_no_template_args",
                 "yield_existing",
                 "yield_existing_2_terms",
+                "yield_existing_on_create_flag",
+                "yield_existing_on_delete_flag",
+                "yield_existing_on_create_delete_flag",
                 "default_ctor",
                 "entity_ctor",
                 "on_add",
@@ -912,7 +933,13 @@
                 "register_twice_w_each",
                 "register_twice_w_run",
                 "register_twice_w_run_each",
-                "register_twice_w_each_run"
+                "register_twice_w_each_run",
+                "other_table",
+                "other_table_w_pair",
+                "other_table_w_pair_wildcard",
+                "on_add_inherited",
+                "on_set_inherited",
+                "on_remove_inherited"
             ]
         }, {
             "id": "ComponentLifecycle",
@@ -976,6 +1003,15 @@
                 "on_add_hook_w_entity",
                 "on_remove_hook_w_entity",
                 "on_set_hook_w_entity",
+                "on_add_hook_sparse",
+                "on_remove_hook_sparse",
+                "on_set_hook_sparse",
+                "on_add_hook_sparse_w_entity",
+                "on_remove_hook_sparse_w_entity",
+                "on_set_hook_sparse_w_entity",
+                "on_add_hook_sparse_w_iter",
+                "on_remove_hook_sparse_w_iter",
+                "on_set_hook_sparse_w_iter",
                 "chained_hooks",
                 "ctor_w_2_worlds",
                 "ctor_w_2_worlds_explicit_registration",
@@ -993,7 +1029,9 @@
                 "dtor_relation_target",
                 "register_parent_after_child_w_hooks",
                 "register_parent_after_child_w_hooks_implicit",
-                "sparse_component"
+                "sparse_component",
+                "count_in_add_hook",
+                "count_in_remove_hook"
             ]
         }, {
             "id": "Refs",
@@ -1012,7 +1050,9 @@
                 "default_ctor",
                 "ctor_from_entity",
                 "implicit_operator_bool",
-                "try_get"
+                "try_get",
+                "has",
+                "bool_operator"
             ]
         }, {
             "id": "Module",

@@ -50,7 +50,17 @@
                 "pair_id_toggle_is_tag",
                 "make_pair",
                 "make_pair_of_pair",
-                "make_pair_of_pair_tgt"
+                "make_pair_of_pair_tgt",
+                "0_entity",
+                "entity_from_str",
+                "unresolved_entity_from_str",
+                "scoped_entity_from_str",
+                "template_entity_from_str",
+                "pair_from_str",
+                "unresolved_pair_from_str",
+                "wildcard_pair_from_str",
+                "any_pair_from_str",
+                "invalid_pair"
             ]
         }, {
             "id": "Entity",
@@ -359,7 +369,8 @@
                 "new_w_table",
                 "new_w_null_table",
                 "new_w_table_component",
-                "new_w_table_sparse_component"
+                "new_w_table_sparse_component",
+                "new_w_table_override"
             ]
         }, {
             "id": "New_w_Count",
@@ -474,6 +485,9 @@
                 "get_mut_inherited",
                 "ensure_inherited",
                 "emplace_inherited",
+                "override_component",
+                "delete_w_override_component",
+                "delete_w_override_on_remove_isa", 
                 "ctor_after_emplace",
                 "ctor_dtor_after_remove",
                 "ctor_dtor_after_clear",
@@ -485,6 +499,19 @@
                 "on_add_remove_after_fini",
                 "on_set_after_set",
                 "on_set_after_modified",
+                "on_set_at_offset",
+                "on_add_observer",
+                "on_set_observer_set",
+                "on_set_observer_modified",
+                "on_set_observer_insert",
+                "on_remove_observer_remove",
+                "on_remove_observer_clear",
+                "on_remove_observer_delete",
+                "on_remove_observer_fini",
+                "on_set_after_remove_override",
+                "on_add_observer_2_terms",
+                "on_set_observer_2_terms",
+                "on_remove_observer_2_terms",
                 "sparse_relationship",
                 "defer_ensure",
                 "defer_ensure_w_modified",
@@ -514,7 +541,6 @@
                 "defer_batched_set_existing",
                 "defer_batched_set_remove",
                 "defer_batched_set_remove_existing"
-
             ]
         }, {
             "id": "Union",
@@ -632,7 +658,7 @@
                 "new_from_path_existing_depth_2",
                 "add_path_depth_0",
                 "add_path_depth_1",
-                "add_path_depth_2", 
+                "add_path_depth_2",
                 "add_path_existing_depth_0",
                 "add_path_existing_depth_1",
                 "add_path_existing_depth_2",
@@ -1044,6 +1070,7 @@
                 "1_component",
                 "2_component",
                 "1_component_w_value",
+                "1_component_w_lifecycle",
                 "2_component_w_value",
                 "3_component",
                 "3_component_w_value",
@@ -1121,8 +1148,10 @@
                 "ctor_move_dtor_after_resize",
                 "ctx_free",
                 "binding_ctx_free",
+                "lifecycle_ctx_free",
                 "ctx_free_after_delete_component",
                 "binding_ctx_free_after_delete_component",
+                "lifecycle_ctx_free_after_delete_component",
                 "on_add_ctx",
                 "on_remove_ctx",
                 "on_set_ctx",
@@ -1150,7 +1179,9 @@
                 "on_nested_prefab_copy_test_invokes_copy_count",
                 "no_move_no_move_ctor_with_move_dtor_with_ctor_move_dtor",
                 "new_w_table_ctor",
-                "new_w_table_on_add_hook"
+                "new_w_table_on_add_hook",
+                "count_in_on_add",
+                "count_in_on_remove"
             ]
         }, {
             "id": "Pairs",
@@ -1441,7 +1472,7 @@
                 "2_pair_terms_w_on_remove",
                 "2_wildcard_pair_terms_w_on_add",
                 "2_wildcard_pair_terms_w_on_add_2_matching",
-                "2_wildcard_pair_terms_w_on_add_3_matching",                
+                "2_wildcard_pair_terms_w_on_add_3_matching",
                 "2_wildcard_pair_terms_w_on_remove",
                 "on_set_n_entities",
                 "on_set_n_entities_2_comp",
@@ -1493,6 +1524,19 @@
                 "on_add_yield_existing_wildcard",
                 "on_add_yield_existing_wildcard_multi",
                 "on_add_yield_existing_wildcard_multi_w_wildcard_pivot",
+                "on_remove_yield_existing",
+                "on_remove_yield_existing_2_tables",
+                "on_remove_yield_existing_2_terms",
+                "on_remove_yield_existing_wildcard",
+                "on_remove_yield_existing_wildcard_multi",
+                "on_remove_yield_existing_wildcard_multi_w_wildcard_pivot",
+                "on_add_remove_yield_existing",
+                "on_add_remove_yield_existing_flags",
+                "on_add_remove_no_on_add_yield_existing",
+                "on_add_remove_no_on_remove_yield_existing",
+                "yield_existing_flags_w_multi_observer",
+                "yield_on_create_without_on_add",
+                "yield_on_delete_without_on_remove",
                 "observer_superset_wildcard",
                 "observer_superset_wildcard_add_isa",
                 "observer_superset_wildcard_add_isa_at_offset",
@@ -1551,8 +1595,10 @@
                 "notify_after_defer_batched_2_entities_in_table_w_tgt",
                 "multi_observer_table_fill_w_singleton",
                 "wildcard_propagate_w_other_table",
-                "add_in_yield_existing",
-                "add_in_yield_existing_multi",
+                "add_in_on_add_yield_existing",
+                "add_in_on_add_yield_existing_multi",
+                "add_in_on_remove_yield_existing",
+                "add_in_on_remove_yield_existing_multi",
                 "disable_observer",
                 "disable_observer_module",
                 "disable_observer_module_nested",
@@ -1588,6 +1634,14 @@
                 "register_callback_after_run_ctx",
                 "register_run_after_callback_ctx",
                 "on_add_after_new_w_table",
+                "ref_flag_term_1",
+                "ref_flag_term_2",
+                "forward_up_flag_term_1",
+                "forward_up_flag_term_2",
+                "propagate_up_flag_term_1",
+                "propagate_up_flag_term_2",
+                "row_flag_term_1",
+                "row_flag_term_2",
                 "cache_test_1",
                 "cache_test_2",
                 "cache_test_3",
@@ -1604,7 +1658,7 @@
                 "cache_test_14",
                 "cache_test_15",
                 "cache_test_16"
-            ]                
+            ]
         }, {
             "id": "ObserverOnSet",
             "testcases": [
@@ -1719,7 +1773,8 @@
                 "monitor_w_wildcard",
                 "monitor_at_fini",
                 "monitor_other_table",
-                "monitor_component"
+                "monitor_component",
+                "yield_existing"
             ]
         }, {
             "id": "Prefab",
@@ -1752,7 +1807,7 @@
                 "prefab_w_base_w_child",
                 "prefab_w_child_w_base",
                 "prefab_w_child_w_base_w_children",
-                "prefab_w_child_new_w_count",                
+                "prefab_w_child_new_w_count",
                 "prefab_auto_override_child_component",
                 "ignore_on_add",
                 "ignore_on_remove",
@@ -1801,7 +1856,7 @@
                 "rematch_after_prefab_delete",
                 "add_tag_w_low_id_to_instance",
                 "get_type_after_base_add",
-                "get_type_after_recycled_base_add",                
+                "get_type_after_recycled_base_add",
                 "new_w_recycled_base",
                 "add_recycled_base",
                 "remove_recycled_base",
@@ -1854,7 +1909,27 @@
                 "hierarchy_w_recycled_id",
                 "disable_ids",
                 "disable_nested_ids",
-                "prefab_w_children_w_isa_auto_override"
+                "prefab_w_children_w_isa_auto_override",
+                "prefab_child_w_override",
+                "prefab_child_w_override_and_higher_component",
+                "prefab_child_w_override_and_lower_component",
+                "prefab_1_child_offset_id",
+                "prefab_2_children_offset_id",
+                "prefab_3_children_offset_id",
+                "prefab_2_children_2_types_offset_id",
+                "prefab_3_children_3_types_offset_id",
+                "prefab_2_children_2_types_reverse_offset_id",
+                "prefab_3_children_3_types_reverse_offset_id",
+                "prefab_2_lvl_nested_children_offset_id",
+                "prefab_3_lvl_nested_children_offset_id",
+                "prefab_recycled_children_offset_id",
+                "prefab_recycled_instance_offset_id",
+                "prefab_children_recycled_offset_id",
+                "prefab_recycled_children_recycled_offset_id",
+                "prefab_recycled_children_recycled_offset_id_different_generation",
+                "prefab_1_child_offset_id_occupied",
+                "prefab_1_child_offset_id_recycled_occupied",
+                "prefab_child_offset_w_smaller_child_id"
             ]
         }, {
             "id": "World",
@@ -1871,6 +1946,11 @@
                 "entity_range_add_out_of_range_staged",
                 "entity_range_out_of_range_check_disabled",
                 "entity_range_check_after_delete",
+                "entity_range_offset_0",
+                "entity_range_set_limit_to_lower",
+                "entity_range_set_limit_to_lower_than_offset",
+                "entity_range_overlapping_new_id",
+                "entity_range_overlapping_new_bulk_id",
                 "dim",
                 "phases",
                 "phases_w_merging",
@@ -1917,7 +1997,10 @@
                 "set_get_binding_context",
                 "set_get_context_w_free",
                 "set_get_binding_context_w_free",
-                "get_entities"
+                "get_entities",
+                "run_post_frame",
+                "run_post_frame_outside_of_frame",
+                "get_flags"
             ]
         }, {
             "id": "WorldInfo",
@@ -2099,7 +2182,9 @@
                 "add_isa_set_w_override_batched",
                 "add_set_isa_w_override_batched",
                 "add_batched_set_with",
-                "defer_emplace_after_remove"
+                "defer_emplace_after_remove",
+                "batched_w_table_change_in_observer",
+                "redefine_named_in_threaded_app"
             ]
         }, {
             "id": "SingleThreadStaging",
@@ -2214,7 +2299,11 @@
                 "get_depth",
                 "get_depth_non_acyclic",
                 "get_depth_2_paths",
-                "get_column_size"
+                "get_column_size",
+                "has_id",
+                "has_pair",
+                "has_wildcard_pair",
+                "has_any_pair"
             ]
         }, {
             "id": "Poly",

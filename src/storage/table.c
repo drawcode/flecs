@@ -152,7 +152,7 @@ void flecs_table_init_columns(
     int16_t *s2t = &table->column_map[ids_count];
 
     for (i = 0; i < ids_count; i ++) {
-        ecs_id_t id = table->type.array[i];
+        ecs_id_t id = ids[i];
         ecs_table_record_t *tr = &records[i];
         ecs_id_record_t *idr = (ecs_id_record_t*)tr->hdr.cache;
         const ecs_type_info_t *ti = idr->type_info;
@@ -172,16 +172,20 @@ void flecs_table_init_columns(
             table->component_map[id] = flecs_ito(int16_t, cur + 1);
         }
 
-        if (ECS_IS_PAIR(ids[i])) {
-            ecs_table_record_t *wc_tr = flecs_id_record_get_table(
-                idr->parent, table);
-            if (wc_tr->index == tr->index) {
-                wc_tr->column = tr->column;
-            }
-        }
-
         table->flags |= flecs_type_info_flags(ti);
         cur ++;
+    }
+
+    int32_t record_count = table->_->record_count;
+    for (; i < record_count; i ++) {
+        ecs_table_record_t *tr = &records[i];
+        ecs_id_record_t *idr = (ecs_id_record_t*)tr->hdr.cache;
+        ecs_id_t id = idr->id;
+        
+        if (ecs_id_is_wildcard(id)) {
+            ecs_table_record_t *first_tr = &records[tr->index];
+            tr->column = first_tr->column;
+        }
     }
 }
 
@@ -1436,6 +1440,12 @@ int32_t flecs_table_append(
     table->data.count = v_entities.count;
     table->data.size = v_entities.size;
 
+    /* If this is the first entity in this table, signal queries so that the
+     * table moves from an inactive table to an active table. */
+    if (!count) {
+        flecs_table_set_empty(world, table);
+    }
+
     /* Reobtain size to ensure that the columns have the same size as the 
      * entities and record vectors. This keeps reasoning about when allocations
      * occur easier. */
@@ -1470,12 +1480,6 @@ int32_t flecs_table_append(
         ecs_assert(bs_columns != NULL, ECS_INTERNAL_ERROR, NULL);
         ecs_bitset_t *bs = &bs_columns[i];
         flecs_bitset_addn(bs, 1);
-    }
-
-    /* If this is the first entity in this table, signal queries so that the
-     * table moves from an inactive table to an active table. */
-    if (!count) {
-        flecs_table_set_empty(world, table);
     }
 
     flecs_table_check_sanity(world, table);
@@ -1538,13 +1542,6 @@ void flecs_table_delete(
     /* If the table is monitored indicate that there has been a change */
     flecs_table_mark_table_dirty(world, table, 0);    
 
-    /* If table is empty, deactivate it */
-    if (!count) {
-        table->data.count --;
-        flecs_table_set_empty(world, table);
-        table->data.count ++;
-    }
-
     /* Destruct component data */
     ecs_column_t *columns = table->data.columns;
     int32_t column_count = table->column_count;
@@ -1558,6 +1555,9 @@ void flecs_table_delete(
         }
 
         table->data.count --;
+        if (!count) {
+            flecs_table_set_empty(world, table);
+        }
 
         flecs_table_check_sanity(world, table);
         return;
@@ -1621,6 +1621,9 @@ void flecs_table_delete(
     }
 
     table->data.count --;
+    if (!count) {
+        flecs_table_set_empty(world, table);
+    }
 
     flecs_table_check_sanity(world, table);
 }
@@ -2260,7 +2263,6 @@ int32_t ecs_table_get_type_index(
 {
     flecs_poly_assert(world, ecs_world_t);
     ecs_check(table != NULL, ECS_INVALID_PARAMETER, NULL);
-    ecs_check(ecs_id_is_valid(world, id), ECS_INVALID_PARAMETER, NULL);
 
     if (id < FLECS_HI_COMPONENT_ID) {
         int16_t res = table->component_map[id];

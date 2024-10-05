@@ -281,6 +281,7 @@ void flecs_emit_propagate_id(
         it->other_table = NULL;
         it->offset = 0;
         it->count = entity_count;
+        it->up_fields = 1;
         if (entity_count) {
             it->entities = ecs_table_entities(table);
         }
@@ -319,6 +320,7 @@ void flecs_emit_propagate_id(
     }
 
     it->event_cur = event_cur;
+    it->up_fields = 0;
 }
 
 static
@@ -613,6 +615,7 @@ void flecs_emit_forward_id(
     it->sources[0] = tgt;
     it->event_id = id;
     ECS_CONST_CAST(int32_t*, it->sizes)[0] = 0; /* safe, owned by observer */
+    it->up_fields = 1;
 
     int32_t storage_i = ecs_table_type_to_column_index(tgt_table, column);
     if (storage_i != -1) {
@@ -673,6 +676,8 @@ void flecs_emit_forward_id(
             it->trs[0] = base_tr;
         }
     }
+
+    it->up_fields = 0;
 }
 
 static
@@ -1265,7 +1270,7 @@ repeat_event:
                              * from being called recursively, in case prefab
                              * children also have IsA relationships. */
                             world->stages[0]->base = tgt;
-                            flecs_instantiate(world, tgt, table, offset, count);
+                            flecs_instantiate(world, tgt, table, offset, count, NULL);
                             world->stages[0]->base = 0;
                         }
 
@@ -1340,7 +1345,8 @@ repeat_event:
         if (count) {
             storage_i = tr->column;
             bool is_sparse = idr->flags & EcsIdIsSparse;
-            if (storage_i != -1 || is_sparse) {
+
+            if (!ecs_id_is_wildcard(id) && (storage_i != -1 || is_sparse)) {
                 void *ptr;
                 ecs_size_t size = idr->type_info->size;
 

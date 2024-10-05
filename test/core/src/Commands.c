@@ -4149,3 +4149,63 @@ void Commands_defer_emplace_after_remove(void) {
 
     ecs_fini(world);
 }
+
+static
+void RemoveVelocity(ecs_iter_t *it) {
+    test_int(it->count, 1);
+    ecs_remove(it->world, it->entities[0], Velocity);
+}
+
+void Commands_batched_w_table_change_in_observer(void) {
+    ecs_world_t *world = ecs_mini();
+
+    ECS_COMPONENT_DEFINE(world, Position);
+    ECS_COMPONENT_DEFINE(world, Velocity);
+    ECS_TAG(world, Foo);
+
+    ecs_observer(world, {
+        .query.terms = {{ ecs_id(Position) }},
+        .events = { EcsOnRemove },
+        .callback = RemoveVelocity
+    });
+
+    ecs_observer(world, {
+        .query.terms = {{ Foo }},
+        .events = { EcsOnAdd },
+        .callback = DummyObserver
+    });
+
+    ecs_entity_t e1 = ecs_new(world);
+    ecs_add(world, e1, Position);
+    ecs_add(world, e1, Velocity);
+
+    ecs_defer_begin(world);
+    ecs_remove(world, e1, Position);
+    ecs_add(world, e1, Foo);
+    ecs_defer_end(world);
+
+    test_assert(ecs_has(world, e1, Foo));
+    test_assert(!ecs_has(world, e1, Position));
+    test_assert(!ecs_has(world, e1, Velocity));
+
+    ecs_fini(world);
+}
+
+void Commands_redefine_named_in_threaded_app(void) {
+    ecs_world_t *world = ecs_init();
+
+    ecs_set_threads(world, 2);
+
+    ecs_defer_begin(world);
+    ecs_entity_t c1 = ecs_entity(world, { .name = "parent.child_1" });
+    ecs_entity_t c2 = ecs_entity(world, { .name = "parent.child_2" });
+    ecs_defer_end(world);
+
+    ecs_entity_t p1 = ecs_get_target(world, c1, EcsChildOf, 0);
+    test_assert(p1 != 0);
+    ecs_entity_t p2 = ecs_get_target(world, c2, EcsChildOf, 0);
+    test_assert(p2 != 0);
+    test_assert(p1 == p2);
+
+    ecs_fini(world);
+}

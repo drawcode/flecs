@@ -35,7 +35,7 @@
 /* Flecs version macros */
 #define FLECS_VERSION_MAJOR 4  /**< Flecs major version. */
 #define FLECS_VERSION_MINOR 0  /**< Flecs minor version. */
-#define FLECS_VERSION_PATCH 1  /**< Flecs patch version. */
+#define FLECS_VERSION_PATCH 2  /**< Flecs patch version. */
 
 /** Flecs version. */
 #define FLECS_VERSION FLECS_VERSION_IMPL(\
@@ -72,6 +72,13 @@
  * applications, at the cost of increased overhead.
  */
 // #define FLECS_ACCURATE_COUNTERS
+
+/** @def FLECS_DISABLE_COUNTERS
+ * Disables counters used for statistics. Improves performance, but
+ * will prevent some features that rely on statistics from working,
+ * like the statistics pages in the explorer.
+ */
+// #define FLECS_DISABLE_COUNTERS
 
 /* Make sure provided configuration is valid */
 #if defined(FLECS_DEBUG) && defined(FLECS_NDEBUG)
@@ -338,7 +345,7 @@ extern "C" {
 #define EcsWorldMeasureFrameTime      (1u << 5)
 #define EcsWorldMeasureSystemTime     (1u << 6)
 #define EcsWorldMultiThreaded         (1u << 7)
-
+#define EcsWorldFrameInProgress       (1u << 8)
 
 ////////////////////////////////////////////////////////////////////////////////
 //// OS API flags
@@ -461,18 +468,20 @@ extern "C" {
 #define EcsQueryMatchOnlyThis         (1u << 12u) /* Query only has terms with $this source */
 #define EcsQueryMatchOnlySelf         (1u << 13u) /* Query has no terms with up traversal */
 #define EcsQueryMatchWildcards        (1u << 14u) /* Query matches wildcards */
-#define EcsQueryHasCondSet            (1u << 15u) /* Query has conditionally set fields */
-#define EcsQueryHasPred               (1u << 16u) /* Query has equality predicates */
-#define EcsQueryHasScopes             (1u << 17u) /* Query has query scopes */
-#define EcsQueryHasRefs               (1u << 18u) /* Query has terms with static source */
-#define EcsQueryHasOutTerms           (1u << 19u) /* Query has [out] terms */
-#define EcsQueryHasNonThisOutTerms    (1u << 20u) /* Query has [out] terms with no $this source */
-#define EcsQueryHasMonitor            (1u << 21u) /* Query has monitor for change detection */
-#define EcsQueryIsTrivial             (1u << 22u) /* Query can use trivial evaluation function */
-#define EcsQueryHasCacheable          (1u << 23u) /* Query has cacheable terms */
-#define EcsQueryIsCacheable           (1u << 24u) /* All terms of query are cacheable */
-#define EcsQueryHasTableThisVar       (1u << 25u) /* Does query have $this table var */
+#define EcsQueryMatchNothing          (1u << 15u) /* Query matches nothing */
+#define EcsQueryHasCondSet            (1u << 16u) /* Query has conditionally set fields */
+#define EcsQueryHasPred               (1u << 17u) /* Query has equality predicates */
+#define EcsQueryHasScopes             (1u << 18u) /* Query has query scopes */
+#define EcsQueryHasRefs               (1u << 19u) /* Query has terms with static source */
+#define EcsQueryHasOutTerms           (1u << 20u) /* Query has [out] terms */
+#define EcsQueryHasNonThisOutTerms    (1u << 21u) /* Query has [out] terms with no $this source */
+#define EcsQueryHasMonitor            (1u << 22u) /* Query has monitor for change detection */
+#define EcsQueryIsTrivial             (1u << 23u) /* Query can use trivial evaluation function */
+#define EcsQueryHasCacheable          (1u << 24u) /* Query has cacheable terms */
+#define EcsQueryIsCacheable           (1u << 25u) /* All terms of query are cacheable */
+#define EcsQueryHasTableThisVar       (1u << 26u) /* Does query have $this table var */
 #define EcsQueryCacheYieldEmptyTables (1u << 27u) /* Does query cache empty tables */
+
 
 ////////////////////////////////////////////////////////////////////////////////
 //// Term flags (used by ecs_term_t::flags_)
@@ -502,7 +511,10 @@ extern "C" {
 #define EcsObserverIsMonitor           (1u << 2u)  /* Is observer a monitor */
 #define EcsObserverIsDisabled          (1u << 3u)  /* Is observer entity disabled */
 #define EcsObserverIsParentDisabled    (1u << 4u)  /* Is module parent of observer disabled  */
-#define EcsObserverBypassQuery         (1u << 5u)
+#define EcsObserverBypassQuery         (1u << 5u)  /* Don't evaluate query for multi-component observer*/
+#define EcsObserverYieldOnCreate       (1u << 6u)  /* Yield matching entities when creating observer */
+#define EcsObserverYieldOnDelete       (1u << 7u)  /* Yield matching entities when deleting observer */
+
 
 ////////////////////////////////////////////////////////////////////////////////
 //// Table flags (used by ecs_table_t::flags)
@@ -653,9 +665,6 @@ extern "C" {
 /* Filenames aren't consistent across targets as they can use different casing 
  * (e.g. WinSock2 vs winsock2). */
 #pragma clang diagnostic ignored "-Wnonportable-system-include-path"
-/* Enum reflection relies on testing constant values that may not be valid for
- * the enumeration. */
-#pragma clang diagnostic ignored "-Wenum-constexpr-conversion"
 /* Very difficult to workaround this warning in C, especially for an ECS. */
 #pragma clang diagnostic ignored "-Wunsafe-buffer-usage"
 /* This warning gets thrown when trying to cast pointer returned from dlproc */
@@ -667,6 +676,11 @@ extern "C" {
  * code paths are reached where values are uninitialized. */
 #ifdef FLECS_SOFT_ASSERT
 #pragma clang diagnostic ignored "-Wsometimes-uninitialized"
+#endif
+
+/* Allows for enum reflection support on legacy compilers */
+#if __clang_major__ < 16
+#pragma clang diagnostic ignored "-Wenum-constexpr-conversion"
 #endif
 
 #elif defined(ECS_TARGET_GNU)
@@ -688,6 +702,11 @@ extern "C" {
 /* Produces false positives in queries/src/cache.c */
 #pragma GCC diagnostic ignored "-Wstringop-overflow"
 #pragma GCC diagnostic ignored "-Wrestrict"
+#endif
+
+/* Allows for enum reflection support on legacy compilers */
+#if defined(__GNUC__) && __GNUC__ <= 10
+#pragma GCC diagnostic ignored "-Wconversion"
 #endif
 
 /* Standard library dependencies */
@@ -813,6 +832,8 @@ typedef struct ecs_allocator_t ecs_allocator_t;
 #elif defined(ECS_TARGET_MSVC)
 #define ECS_ALIGNOF(T) (int64_t)__alignof(T)
 #elif defined(ECS_TARGET_GNU)
+#define ECS_ALIGNOF(T) (int64_t)__alignof__(T)
+#elif defined(ECS_TARGET_CLANG)
 #define ECS_ALIGNOF(T) (int64_t)__alignof__(T)
 #else
 #define ECS_ALIGNOF(T) ((int64_t)&((struct { char c; T d; } *)0)->d)
@@ -2704,6 +2725,7 @@ void ecs_os_set_api_defaults(void);
 #define ecs_os_now() ecs_os_api.now_()
 #define ecs_os_get_time(time_out) ecs_os_api.get_time_(time_out)
 
+#ifndef FLECS_DISABLE_COUNTERS
 #ifdef FLECS_ACCURATE_COUNTERS
 #define ecs_os_inc(v)  (ecs_os_ainc(v))
 #define ecs_os_linc(v) (ecs_os_lainc(v))
@@ -2715,6 +2737,13 @@ void ecs_os_set_api_defaults(void);
 #define ecs_os_dec(v)  (--(*v))
 #define ecs_os_ldec(v) (--(*v))
 #endif
+#else
+#define ecs_os_inc(v)
+#define ecs_os_linc(v)
+#define ecs_os_dec(v)
+#define ecs_os_ldec(v)
+#endif
+
 
 #ifdef ECS_TARGET_MINGW
 /* mingw bug: without this a conversion error is thrown, but isnan/isinf should
@@ -3425,6 +3454,7 @@ struct ecs_query_t {
 
     /* Bitmasks for quick field information lookups */
     ecs_termset_t fixed_fields; /**< Fields with a fixed source */
+    ecs_termset_t var_fields;   /**< Fields with non-$this variable source */
     ecs_termset_t static_id_fields; /**< Fields with a static (component) id */
     ecs_termset_t data_fields;  /**< Fields that have data */
     ecs_termset_t write_fields; /**< Fields that write data */
@@ -3520,11 +3550,14 @@ struct ecs_type_hooks_t {
      * destructor is invoked. */
     ecs_iter_action_t on_remove;
 
-    void *ctx;                       /**< User defined context */
-    void *binding_ctx;               /**< Language binding context */
+    void *ctx;                         /**< User defined context */
+    void *binding_ctx;                 /**< Language binding context */
+    void *lifecycle_ctx;               /**< Component lifecycle context (see meta add-on)*/
 
-    ecs_ctx_free_t ctx_free;         /**< Callback to free ctx */
-    ecs_ctx_free_t binding_ctx_free; /**< Callback to free binding_ctx */
+    ecs_ctx_free_t ctx_free;           /**< Callback to free ctx */
+    ecs_ctx_free_t binding_ctx_free;   /**< Callback to free binding_ctx */
+    ecs_ctx_free_t lifecycle_ctx_free; /**< Callback to free lifecycle_ctx */
+
 };
 
 /** Type that contains component information (passed to ctors/dtors/...)
@@ -3532,7 +3565,6 @@ struct ecs_type_hooks_t {
  * @ingroup components
  */
 struct ecs_type_info_t {
-    const ecs_world_t *world; /**< World */
     ecs_size_t size;         /**< Size of type */
     ecs_size_t alignment;    /**< Alignment of type */
     ecs_type_hooks_t hooks;  /**< Type hooks */
@@ -4545,6 +4577,7 @@ typedef struct ecs_world_info_t {
 
     int64_t frame_count_total;        /**< Total number of frames */
     int64_t merge_count_total;        /**< Total number of merges */
+    int64_t eval_comp_monitors_total; /**< Total number of monitor evaluations */
     int64_t rematch_count_total;      /**< Total number of rematches */
 
     int64_t id_create_total;          /**< Total number of times a new id was created */
@@ -5135,6 +5168,17 @@ typedef struct ecs_entities_t {
  */
 FLECS_API
 ecs_entities_t ecs_get_entities(
+    const ecs_world_t *world);
+
+/** Get flags set on the world.
+ * This operation returns the internal flags (see api_flags.h) that are
+ * set on the world.
+ *
+ * @param world The world.
+ * @return Flags set on the world.
+ */
+FLECS_API
+ecs_flags32_t ecs_world_get_flags(
     const ecs_world_t *world);
 
 /** @} */
@@ -7494,7 +7538,7 @@ FLECS_API
 const char* ecs_id_flag_str(
     ecs_id_t id_flags);
 
-/** Convert id to string.
+/** Convert (component) id to string.
  * This operation interprets the structure of an id and converts it to a string.
  *
  * @param world The world.
@@ -7506,7 +7550,7 @@ char* ecs_id_str(
     const ecs_world_t *world,
     ecs_id_t id);
 
-/** Write id string to buffer.
+/** Write (component) id string to buffer.
  * Same as ecs_id_str() but writes result to ecs_strbuf_t.
  *
  * @param world The world.
@@ -7518,6 +7562,18 @@ void ecs_id_str_buf(
     const ecs_world_t *world,
     ecs_id_t id,
     ecs_strbuf_t *buf);
+
+/** Convert string to a (component) id.
+ * This operation is the reverse of ecs_id_str(). The FLECS_SCRIPT addon
+ * is required for this operation to work.
+ *
+ * @param world The world.
+ * @param expr The string to convert to an id.
+ */
+FLECS_API
+ecs_id_t ecs_id_from_str(
+    const ecs_world_t *world,
+    const char *expr);
 
 /** @} */
 
@@ -8110,6 +8166,18 @@ ecs_query_count_t ecs_query_count(
  */
 FLECS_API
 bool ecs_query_is_true(
+    const ecs_query_t *query);
+
+/** Get query used to populate cache.
+ * This operation returns the query that is used to populate the query cache.
+ * For queries that are can be entirely cached, the returned query will be 
+ * equivalent to the query passed to ecs_query_get_cache_query().
+ *
+ * @param query The query.
+ * @return The query used to populate the cache, NULL if query is not cached.
+ */
+FLECS_API
+const ecs_query_t* ecs_query_get_cache_query(
     const ecs_query_t *query);
 
 /** @} */
@@ -9821,7 +9889,7 @@ int ecs_value_move_ctor(
     ecs_ref_init_id(world, entity, ecs_id(T))
 
 #define ecs_ref_get(world, ref, T)\
-    (ECS_CAST(const T*, ecs_ref_get_id(world, ref, ecs_id(T))))
+    (ECS_CAST(T*, ecs_ref_get_id(world, ref, ecs_id(T))))
 
 /** @} */
 
@@ -10257,6 +10325,9 @@ int ecs_value_move_ctor(
 #endif
 #ifdef FLECS_NO_SYSTEM
 #undef FLECS_SYSTEM
+#endif
+#ifdef FLECS_NO_ALERTS
+#undef FLECS_ALERTS
 #endif
 #ifdef FLECS_NO_PIPELINE
 #undef FLECS_PIPELINE
@@ -13723,37 +13794,37 @@ extern "C" {
  * @{
  */
 
-FLECS_API extern ECS_DECLARE(EcsUnitPrefixes); /**< Parent scope for prefixes. */
+FLECS_API extern ecs_entity_t EcsUnitPrefixes; /**< Parent scope for prefixes. */
 
-FLECS_API extern ECS_DECLARE(EcsYocto);  /**< Yocto unit prefix. */
-FLECS_API extern ECS_DECLARE(EcsZepto);  /**< Zepto unit prefix. */
-FLECS_API extern ECS_DECLARE(EcsAtto);   /**< Atto unit prefix. */
-FLECS_API extern ECS_DECLARE(EcsFemto);  /**< Femto unit prefix. */
-FLECS_API extern ECS_DECLARE(EcsPico);   /**< Pico unit prefix. */
-FLECS_API extern ECS_DECLARE(EcsNano);   /**< Nano unit prefix. */
-FLECS_API extern ECS_DECLARE(EcsMicro);  /**< Micro unit prefix. */
-FLECS_API extern ECS_DECLARE(EcsMilli);  /**< Milli unit prefix. */
-FLECS_API extern ECS_DECLARE(EcsCenti);  /**< Centi unit prefix. */
-FLECS_API extern ECS_DECLARE(EcsDeci);   /**< Deci unit prefix. */
-FLECS_API extern ECS_DECLARE(EcsDeca);   /**< Deca unit prefix. */
-FLECS_API extern ECS_DECLARE(EcsHecto);  /**< Hecto unit prefix. */
-FLECS_API extern ECS_DECLARE(EcsKilo);   /**< Kilo unit prefix. */
-FLECS_API extern ECS_DECLARE(EcsMega);   /**< Mega unit prefix. */
-FLECS_API extern ECS_DECLARE(EcsGiga);   /**< Giga unit prefix. */
-FLECS_API extern ECS_DECLARE(EcsTera);   /**< Tera unit prefix. */
-FLECS_API extern ECS_DECLARE(EcsPeta);   /**< Peta unit prefix. */
-FLECS_API extern ECS_DECLARE(EcsExa);    /**< Exa unit prefix. */
-FLECS_API extern ECS_DECLARE(EcsZetta);  /**< Zetta unit prefix. */
-FLECS_API extern ECS_DECLARE(EcsYotta);  /**< Yotta unit prefix. */
+FLECS_API extern ecs_entity_t EcsYocto;  /**< Yocto unit prefix. */
+FLECS_API extern ecs_entity_t EcsZepto;  /**< Zepto unit prefix. */
+FLECS_API extern ecs_entity_t EcsAtto;   /**< Atto unit prefix. */
+FLECS_API extern ecs_entity_t EcsFemto;  /**< Femto unit prefix. */
+FLECS_API extern ecs_entity_t EcsPico;   /**< Pico unit prefix. */
+FLECS_API extern ecs_entity_t EcsNano;   /**< Nano unit prefix. */
+FLECS_API extern ecs_entity_t EcsMicro;  /**< Micro unit prefix. */
+FLECS_API extern ecs_entity_t EcsMilli;  /**< Milli unit prefix. */
+FLECS_API extern ecs_entity_t EcsCenti;  /**< Centi unit prefix. */
+FLECS_API extern ecs_entity_t EcsDeci;   /**< Deci unit prefix. */
+FLECS_API extern ecs_entity_t EcsDeca;   /**< Deca unit prefix. */
+FLECS_API extern ecs_entity_t EcsHecto;  /**< Hecto unit prefix. */
+FLECS_API extern ecs_entity_t EcsKilo;   /**< Kilo unit prefix. */
+FLECS_API extern ecs_entity_t EcsMega;   /**< Mega unit prefix. */
+FLECS_API extern ecs_entity_t EcsGiga;   /**< Giga unit prefix. */
+FLECS_API extern ecs_entity_t EcsTera;   /**< Tera unit prefix. */
+FLECS_API extern ecs_entity_t EcsPeta;   /**< Peta unit prefix. */
+FLECS_API extern ecs_entity_t EcsExa;    /**< Exa unit prefix. */
+FLECS_API extern ecs_entity_t EcsZetta;  /**< Zetta unit prefix. */
+FLECS_API extern ecs_entity_t EcsYotta;  /**< Yotta unit prefix. */
 
-FLECS_API extern ECS_DECLARE(EcsKibi);   /**< Kibi unit prefix. */
-FLECS_API extern ECS_DECLARE(EcsMebi);   /**< Mebi unit prefix. */
-FLECS_API extern ECS_DECLARE(EcsGibi);   /**< Gibi unit prefix. */
-FLECS_API extern ECS_DECLARE(EcsTebi);   /**< Tebi unit prefix. */
-FLECS_API extern ECS_DECLARE(EcsPebi);   /**< Pebi unit prefix. */
-FLECS_API extern ECS_DECLARE(EcsExbi);   /**< Exbi unit prefix. */
-FLECS_API extern ECS_DECLARE(EcsZebi);   /**< Zebi unit prefix. */
-FLECS_API extern ECS_DECLARE(EcsYobi);   /**< Yobi unit prefix. */
+FLECS_API extern ecs_entity_t EcsKibi;   /**< Kibi unit prefix. */
+FLECS_API extern ecs_entity_t EcsMebi;   /**< Mebi unit prefix. */
+FLECS_API extern ecs_entity_t EcsGibi;   /**< Gibi unit prefix. */
+FLECS_API extern ecs_entity_t EcsTebi;   /**< Tebi unit prefix. */
+FLECS_API extern ecs_entity_t EcsPebi;   /**< Pebi unit prefix. */
+FLECS_API extern ecs_entity_t EcsExbi;   /**< Exbi unit prefix. */
+FLECS_API extern ecs_entity_t EcsZebi;   /**< Zebi unit prefix. */
+FLECS_API extern ecs_entity_t EcsYobi;   /**< Yobi unit prefix. */
 
 /** @} */
 
@@ -13763,15 +13834,15 @@ FLECS_API extern ECS_DECLARE(EcsYobi);   /**< Yobi unit prefix. */
  * @{
  */
 
-FLECS_API extern ECS_DECLARE(EcsDuration);         /**< Duration quantity. */
-FLECS_API extern     ECS_DECLARE(EcsPicoSeconds);  /**< PicoSeconds duration unit. */
-FLECS_API extern     ECS_DECLARE(EcsNanoSeconds);  /**< NanoSeconds duration unit. */
-FLECS_API extern     ECS_DECLARE(EcsMicroSeconds); /**< MicroSeconds duration unit. */
-FLECS_API extern     ECS_DECLARE(EcsMilliSeconds); /**< MilliSeconds duration unit. */
-FLECS_API extern     ECS_DECLARE(EcsSeconds);      /**< Seconds duration unit. */
-FLECS_API extern     ECS_DECLARE(EcsMinutes);      /**< Minutes duration unit. */
-FLECS_API extern     ECS_DECLARE(EcsHours);        /**< Hours duration unit. */
-FLECS_API extern     ECS_DECLARE(EcsDays);         /**< Days duration unit. */
+FLECS_API extern ecs_entity_t EcsDuration;         /**< Duration quantity. */
+FLECS_API extern     ecs_entity_t EcsPicoSeconds;  /**< PicoSeconds duration unit. */
+FLECS_API extern     ecs_entity_t EcsNanoSeconds;  /**< NanoSeconds duration unit. */
+FLECS_API extern     ecs_entity_t EcsMicroSeconds; /**< MicroSeconds duration unit. */
+FLECS_API extern     ecs_entity_t EcsMilliSeconds; /**< MilliSeconds duration unit. */
+FLECS_API extern     ecs_entity_t EcsSeconds;      /**< Seconds duration unit. */
+FLECS_API extern     ecs_entity_t EcsMinutes;      /**< Minutes duration unit. */
+FLECS_API extern     ecs_entity_t EcsHours;        /**< Hours duration unit. */
+FLECS_API extern     ecs_entity_t EcsDays;         /**< Days duration unit. */
 
 /** @} */
 
@@ -13781,8 +13852,8 @@ FLECS_API extern     ECS_DECLARE(EcsDays);         /**< Days duration unit. */
  * @{
  */
 
-FLECS_API extern ECS_DECLARE(EcsTime);             /**< Time quantity. */
-FLECS_API extern     ECS_DECLARE(EcsDate);         /**< Date unit. */
+FLECS_API extern ecs_entity_t EcsTime;             /**< Time quantity. */
+FLECS_API extern     ecs_entity_t EcsDate;         /**< Date unit. */
 
 /** @} */
 
@@ -13792,9 +13863,9 @@ FLECS_API extern     ECS_DECLARE(EcsDate);         /**< Date unit. */
  * @{
  */
 
-FLECS_API extern ECS_DECLARE(EcsMass);             /**< Mass quantity. */
-FLECS_API extern     ECS_DECLARE(EcsGrams);        /**< Grams unit. */
-FLECS_API extern     ECS_DECLARE(EcsKiloGrams);    /**< KiloGrams unit. */
+FLECS_API extern ecs_entity_t EcsMass;             /**< Mass quantity. */
+FLECS_API extern     ecs_entity_t EcsGrams;        /**< Grams unit. */
+FLECS_API extern     ecs_entity_t EcsKiloGrams;    /**< KiloGrams unit. */
 
 /** @} */
 
@@ -13804,8 +13875,8 @@ FLECS_API extern     ECS_DECLARE(EcsKiloGrams);    /**< KiloGrams unit. */
  * @{
  */
 
-FLECS_API extern ECS_DECLARE(EcsElectricCurrent);  /**< ElectricCurrent quantity. */
-FLECS_API extern     ECS_DECLARE(EcsAmpere);       /**< Ampere unit. */
+FLECS_API extern ecs_entity_t EcsElectricCurrent;  /**< ElectricCurrent quantity. */
+FLECS_API extern     ecs_entity_t EcsAmpere;       /**< Ampere unit. */
 
 /** @} */
 
@@ -13815,8 +13886,8 @@ FLECS_API extern     ECS_DECLARE(EcsAmpere);       /**< Ampere unit. */
  * @{
  */
 
-FLECS_API extern ECS_DECLARE(EcsAmount);           /**< Amount quantity. */
-FLECS_API extern     ECS_DECLARE(EcsMole);         /**< Mole unit. */
+FLECS_API extern ecs_entity_t EcsAmount;           /**< Amount quantity. */
+FLECS_API extern     ecs_entity_t EcsMole;         /**< Mole unit. */
 
 /** @} */
 
@@ -13826,8 +13897,8 @@ FLECS_API extern     ECS_DECLARE(EcsMole);         /**< Mole unit. */
  * @{
  */
 
-FLECS_API extern ECS_DECLARE(EcsLuminousIntensity); /**< LuminousIntensity quantity. */
-FLECS_API extern     ECS_DECLARE(EcsCandela);       /**< Candela unit. */
+FLECS_API extern ecs_entity_t EcsLuminousIntensity; /**< LuminousIntensity quantity. */
+FLECS_API extern     ecs_entity_t EcsCandela;       /**< Candela unit. */
 
 /** @} */
 
@@ -13837,8 +13908,8 @@ FLECS_API extern     ECS_DECLARE(EcsCandela);       /**< Candela unit. */
  * @{
  */
 
-FLECS_API extern ECS_DECLARE(EcsForce);            /**< Force quantity. */
-FLECS_API extern     ECS_DECLARE(EcsNewton);       /**< Newton unit. */
+FLECS_API extern ecs_entity_t EcsForce;            /**< Force quantity. */
+FLECS_API extern     ecs_entity_t EcsNewton;       /**< Newton unit. */
 
 /** @} */
 
@@ -13848,16 +13919,16 @@ FLECS_API extern     ECS_DECLARE(EcsNewton);       /**< Newton unit. */
  * @{
  */
 
-FLECS_API extern ECS_DECLARE(EcsLength);              /**< Length quantity. */
-FLECS_API extern     ECS_DECLARE(EcsMeters);          /**< Meters unit. */
-FLECS_API extern         ECS_DECLARE(EcsPicoMeters);  /**< PicoMeters unit. */
-FLECS_API extern         ECS_DECLARE(EcsNanoMeters);  /**< NanoMeters unit. */
-FLECS_API extern         ECS_DECLARE(EcsMicroMeters); /**< MicroMeters unit. */
-FLECS_API extern         ECS_DECLARE(EcsMilliMeters); /**< MilliMeters unit. */
-FLECS_API extern         ECS_DECLARE(EcsCentiMeters); /**< CentiMeters unit. */
-FLECS_API extern         ECS_DECLARE(EcsKiloMeters);  /**< KiloMeters unit. */
-FLECS_API extern     ECS_DECLARE(EcsMiles);           /**< Miles unit. */
-FLECS_API extern     ECS_DECLARE(EcsPixels);          /**< Pixels unit. */
+FLECS_API extern ecs_entity_t EcsLength;              /**< Length quantity. */
+FLECS_API extern     ecs_entity_t EcsMeters;          /**< Meters unit. */
+FLECS_API extern         ecs_entity_t EcsPicoMeters;  /**< PicoMeters unit. */
+FLECS_API extern         ecs_entity_t EcsNanoMeters;  /**< NanoMeters unit. */
+FLECS_API extern         ecs_entity_t EcsMicroMeters; /**< MicroMeters unit. */
+FLECS_API extern         ecs_entity_t EcsMilliMeters; /**< MilliMeters unit. */
+FLECS_API extern         ecs_entity_t EcsCentiMeters; /**< CentiMeters unit. */
+FLECS_API extern         ecs_entity_t EcsKiloMeters;  /**< KiloMeters unit. */
+FLECS_API extern     ecs_entity_t EcsMiles;           /**< Miles unit. */
+FLECS_API extern     ecs_entity_t EcsPixels;          /**< Pixels unit. */
 
 /** @} */
 
@@ -13867,9 +13938,9 @@ FLECS_API extern     ECS_DECLARE(EcsPixels);          /**< Pixels unit. */
  * @{
  */
 
-FLECS_API extern ECS_DECLARE(EcsPressure);          /**< Pressure quantity. */
-FLECS_API extern     ECS_DECLARE(EcsPascal);        /**< Pascal unit. */
-FLECS_API extern     ECS_DECLARE(EcsBar);           /**< Bar unit. */
+FLECS_API extern ecs_entity_t EcsPressure;          /**< Pressure quantity. */
+FLECS_API extern     ecs_entity_t EcsPascal;        /**< Pascal unit. */
+FLECS_API extern     ecs_entity_t EcsBar;           /**< Bar unit. */
 
 /** @} */
 
@@ -13879,11 +13950,11 @@ FLECS_API extern     ECS_DECLARE(EcsBar);           /**< Bar unit. */
  * @{
  */
 
-FLECS_API extern ECS_DECLARE(EcsSpeed);                   /**< Speed quantity. */
-FLECS_API extern     ECS_DECLARE(EcsMetersPerSecond);     /**< MetersPerSecond unit. */
-FLECS_API extern     ECS_DECLARE(EcsKiloMetersPerSecond); /**< KiloMetersPerSecond unit. */
-FLECS_API extern     ECS_DECLARE(EcsKiloMetersPerHour);   /**< KiloMetersPerHour unit. */
-FLECS_API extern     ECS_DECLARE(EcsMilesPerHour);        /**< MilesPerHour unit. */
+FLECS_API extern ecs_entity_t EcsSpeed;                   /**< Speed quantity. */
+FLECS_API extern     ecs_entity_t EcsMetersPerSecond;     /**< MetersPerSecond unit. */
+FLECS_API extern     ecs_entity_t EcsKiloMetersPerSecond; /**< KiloMetersPerSecond unit. */
+FLECS_API extern     ecs_entity_t EcsKiloMetersPerHour;   /**< KiloMetersPerHour unit. */
+FLECS_API extern     ecs_entity_t EcsMilesPerHour;        /**< MilesPerHour unit. */
 
 /** @} */
 
@@ -13893,10 +13964,10 @@ FLECS_API extern     ECS_DECLARE(EcsMilesPerHour);        /**< MilesPerHour unit
  * @{
  */
 
-FLECS_API extern ECS_DECLARE(EcsTemperature);       /**< Temperature quantity. */
-FLECS_API extern     ECS_DECLARE(EcsKelvin);        /**< Kelvin unit. */
-FLECS_API extern     ECS_DECLARE(EcsCelsius);       /**< Celsius unit. */
-FLECS_API extern     ECS_DECLARE(EcsFahrenheit);    /**< Fahrenheit unit. */
+FLECS_API extern ecs_entity_t EcsTemperature;       /**< Temperature quantity. */
+FLECS_API extern     ecs_entity_t EcsKelvin;        /**< Kelvin unit. */
+FLECS_API extern     ecs_entity_t EcsCelsius;       /**< Celsius unit. */
+FLECS_API extern     ecs_entity_t EcsFahrenheit;    /**< Fahrenheit unit. */
 
 /** @} */
 
@@ -13906,18 +13977,18 @@ FLECS_API extern     ECS_DECLARE(EcsFahrenheit);    /**< Fahrenheit unit. */
  * @{
  */
 
-FLECS_API extern ECS_DECLARE(EcsData);               /**< Data quantity. */
-FLECS_API extern     ECS_DECLARE(EcsBits);           /**< Bits unit. */
-FLECS_API extern         ECS_DECLARE(EcsKiloBits);   /**< KiloBits unit. */
-FLECS_API extern         ECS_DECLARE(EcsMegaBits);   /**< MegaBits unit. */
-FLECS_API extern         ECS_DECLARE(EcsGigaBits);   /**< GigaBits unit. */
-FLECS_API extern     ECS_DECLARE(EcsBytes);          /**< Bytes unit. */
-FLECS_API extern         ECS_DECLARE(EcsKiloBytes);  /**< KiloBytes unit. */
-FLECS_API extern         ECS_DECLARE(EcsMegaBytes);  /**< MegaBytes unit. */
-FLECS_API extern         ECS_DECLARE(EcsGigaBytes);  /**< GigaBytes unit. */
-FLECS_API extern         ECS_DECLARE(EcsKibiBytes);  /**< KibiBytes unit. */
-FLECS_API extern         ECS_DECLARE(EcsMebiBytes);  /**< MebiBytes unit. */
-FLECS_API extern         ECS_DECLARE(EcsGibiBytes);  /**< GibiBytes unit. */
+FLECS_API extern ecs_entity_t EcsData;               /**< Data quantity. */
+FLECS_API extern     ecs_entity_t EcsBits;           /**< Bits unit. */
+FLECS_API extern         ecs_entity_t EcsKiloBits;   /**< KiloBits unit. */
+FLECS_API extern         ecs_entity_t EcsMegaBits;   /**< MegaBits unit. */
+FLECS_API extern         ecs_entity_t EcsGigaBits;   /**< GigaBits unit. */
+FLECS_API extern     ecs_entity_t EcsBytes;          /**< Bytes unit. */
+FLECS_API extern         ecs_entity_t EcsKiloBytes;  /**< KiloBytes unit. */
+FLECS_API extern         ecs_entity_t EcsMegaBytes;  /**< MegaBytes unit. */
+FLECS_API extern         ecs_entity_t EcsGigaBytes;  /**< GigaBytes unit. */
+FLECS_API extern         ecs_entity_t EcsKibiBytes;  /**< KibiBytes unit. */
+FLECS_API extern         ecs_entity_t EcsMebiBytes;  /**< MebiBytes unit. */
+FLECS_API extern         ecs_entity_t EcsGibiBytes;  /**< GibiBytes unit. */
 
 /** @} */
 
@@ -13927,15 +13998,15 @@ FLECS_API extern         ECS_DECLARE(EcsGibiBytes);  /**< GibiBytes unit. */
  * @{
  */
 
-FLECS_API extern ECS_DECLARE(EcsDataRate);               /**< DataRate quantity. */
-FLECS_API extern     ECS_DECLARE(EcsBitsPerSecond);      /**< BitsPerSecond unit. */
-FLECS_API extern     ECS_DECLARE(EcsKiloBitsPerSecond);  /**< KiloBitsPerSecond unit. */
-FLECS_API extern     ECS_DECLARE(EcsMegaBitsPerSecond);  /**< MegaBitsPerSecond unit. */
-FLECS_API extern     ECS_DECLARE(EcsGigaBitsPerSecond);  /**< GigaBitsPerSecond unit. */
-FLECS_API extern     ECS_DECLARE(EcsBytesPerSecond);     /**< BytesPerSecond unit. */
-FLECS_API extern     ECS_DECLARE(EcsKiloBytesPerSecond); /**< KiloBytesPerSecond unit. */
-FLECS_API extern     ECS_DECLARE(EcsMegaBytesPerSecond); /**< MegaBytesPerSecond unit. */
-FLECS_API extern     ECS_DECLARE(EcsGigaBytesPerSecond); /**< GigaBytesPerSecond unit. */
+FLECS_API extern ecs_entity_t EcsDataRate;               /**< DataRate quantity. */
+FLECS_API extern     ecs_entity_t EcsBitsPerSecond;      /**< BitsPerSecond unit. */
+FLECS_API extern     ecs_entity_t EcsKiloBitsPerSecond;  /**< KiloBitsPerSecond unit. */
+FLECS_API extern     ecs_entity_t EcsMegaBitsPerSecond;  /**< MegaBitsPerSecond unit. */
+FLECS_API extern     ecs_entity_t EcsGigaBitsPerSecond;  /**< GigaBitsPerSecond unit. */
+FLECS_API extern     ecs_entity_t EcsBytesPerSecond;     /**< BytesPerSecond unit. */
+FLECS_API extern     ecs_entity_t EcsKiloBytesPerSecond; /**< KiloBytesPerSecond unit. */
+FLECS_API extern     ecs_entity_t EcsMegaBytesPerSecond; /**< MegaBytesPerSecond unit. */
+FLECS_API extern     ecs_entity_t EcsGigaBytesPerSecond; /**< GigaBytesPerSecond unit. */
 
 /** @} */
 
@@ -13945,9 +14016,9 @@ FLECS_API extern     ECS_DECLARE(EcsGigaBytesPerSecond); /**< GigaBytesPerSecond
  * @{
  */
 
-FLECS_API extern ECS_DECLARE(EcsAngle);            /**< Angle quantity. */
-FLECS_API extern     ECS_DECLARE(EcsRadians);      /**< Radians unit. */
-FLECS_API extern     ECS_DECLARE(EcsDegrees);      /**< Degrees unit. */
+FLECS_API extern ecs_entity_t EcsAngle;            /**< Angle quantity. */
+FLECS_API extern     ecs_entity_t EcsRadians;      /**< Radians unit. */
+FLECS_API extern     ecs_entity_t EcsDegrees;      /**< Degrees unit. */
 
 /** @} */
 
@@ -13957,11 +14028,11 @@ FLECS_API extern     ECS_DECLARE(EcsDegrees);      /**< Degrees unit. */
  * @{
  */
 
-FLECS_API extern ECS_DECLARE(EcsFrequency);        /**< Frequency quantity. */
-FLECS_API extern     ECS_DECLARE(EcsHertz);        /**< Hertz unit. */
-FLECS_API extern     ECS_DECLARE(EcsKiloHertz);    /**< KiloHertz unit. */
-FLECS_API extern     ECS_DECLARE(EcsMegaHertz);    /**< MegaHertz unit. */
-FLECS_API extern     ECS_DECLARE(EcsGigaHertz);    /**< GigaHertz unit. */
+FLECS_API extern ecs_entity_t EcsFrequency;        /**< Frequency quantity. */
+FLECS_API extern     ecs_entity_t EcsHertz;        /**< Hertz unit. */
+FLECS_API extern     ecs_entity_t EcsKiloHertz;    /**< KiloHertz unit. */
+FLECS_API extern     ecs_entity_t EcsMegaHertz;    /**< MegaHertz unit. */
+FLECS_API extern     ecs_entity_t EcsGigaHertz;    /**< GigaHertz unit. */
 
 /** @} */
 
@@ -13971,10 +14042,10 @@ FLECS_API extern     ECS_DECLARE(EcsGigaHertz);    /**< GigaHertz unit. */
  * @{
  */
 
-FLECS_API extern ECS_DECLARE(EcsUri);              /**< URI quantity. */
-FLECS_API extern     ECS_DECLARE(EcsUriHyperlink); /**< UriHyperlink unit. */
-FLECS_API extern     ECS_DECLARE(EcsUriImage);     /**< UriImage unit. */
-FLECS_API extern     ECS_DECLARE(EcsUriFile);      /**< UriFile unit. */
+FLECS_API extern ecs_entity_t EcsUri;              /**< URI quantity. */
+FLECS_API extern     ecs_entity_t EcsUriHyperlink; /**< UriHyperlink unit. */
+FLECS_API extern     ecs_entity_t EcsUriImage;     /**< UriImage unit. */
+FLECS_API extern     ecs_entity_t EcsUriFile;      /**< UriFile unit. */
 
 /** @} */
 
@@ -13984,18 +14055,18 @@ FLECS_API extern     ECS_DECLARE(EcsUriFile);      /**< UriFile unit. */
  * @{
  */
 
-FLECS_API extern ECS_DECLARE(EcsColor);            /**< Color quantity. */
-FLECS_API extern     ECS_DECLARE(EcsColorRgb);     /**< ColorRgb unit. */
-FLECS_API extern     ECS_DECLARE(EcsColorHsl);     /**< ColorHsl unit. */
-FLECS_API extern     ECS_DECLARE(EcsColorCss);     /**< ColorCss unit. */
+FLECS_API extern ecs_entity_t EcsColor;            /**< Color quantity. */
+FLECS_API extern     ecs_entity_t EcsColorRgb;     /**< ColorRgb unit. */
+FLECS_API extern     ecs_entity_t EcsColorHsl;     /**< ColorHsl unit. */
+FLECS_API extern     ecs_entity_t EcsColorCss;     /**< ColorCss unit. */
 
 /** @} */
 
 
-FLECS_API extern ECS_DECLARE(EcsAcceleration);     /**< Acceleration unit. */
-FLECS_API extern ECS_DECLARE(EcsPercentage);       /**< Percentage unit. */
-FLECS_API extern ECS_DECLARE(EcsBel);              /**< Bel unit. */
-FLECS_API extern ECS_DECLARE(EcsDeciBel);          /**< DeciBel unit. */
+FLECS_API extern ecs_entity_t EcsAcceleration;     /**< Acceleration unit. */
+FLECS_API extern ecs_entity_t EcsPercentage;       /**< Percentage unit. */
+FLECS_API extern ecs_entity_t EcsBel;              /**< Bel unit. */
+FLECS_API extern ecs_entity_t EcsDeciBel;          /**< DeciBel unit. */
 
 ////////////////////////////////////////////////////////////////////////////////
 //// Module
@@ -17177,18 +17248,22 @@ struct string_view : string {
 #endif
 #endif
 
+#if defined(__clang__) && __clang_major__ >= 16
+// https://reviews.llvm.org/D130058, https://reviews.llvm.org/D131307
+#define enum_cast(T, v) __builtin_bit_cast(T, v)
+#elif defined(__GNUC__) && __GNUC__ > 10
+#define enum_cast(T, v) __builtin_bit_cast(T, v)
+#else
+#define enum_cast(T, v) static_cast<T>(v)
+#endif
+
 namespace flecs {
 
 /** Int to enum */
 namespace _ {
 template <typename E, underlying_type_t<E> Value>
 struct to_constant {
-#if defined(__clang__) && __clang_major__ >= 16
-    // https://reviews.llvm.org/D130058, https://reviews.llvm.org/D131307
-    static constexpr E value = __builtin_bit_cast(E, Value);
-#else
-    static constexpr E value = static_cast<E>(Value);
-#endif
+    static constexpr E value = enum_cast(E, Value);
 };
 
 template <typename E, underlying_type_t<E> Value>
@@ -17298,6 +17373,12 @@ constexpr bool enum_constant_is_valid() {
 }
 #endif
 
+/* Without this wrapper __builtin_bit_cast doesn't work */
+template <typename E, underlying_type_t<E> C>
+constexpr bool enum_constant_is_valid_wrap() {
+    return enum_constant_is_valid<E, enum_cast(E, C)>();
+}
+
 template <typename E, E C>
 struct enum_is_valid {
     static constexpr bool value = enum_constant_is_valid<E, C>();
@@ -17330,22 +17411,9 @@ struct enum_constant_data {
  * @tparam E The enum type.
  * @tparam Handler The handler for enum reflection operations.
  */
-template <typename E, template<typename> class Handler>
+template <typename E, typename Handler>
 struct enum_reflection {
-    template <E Value>
-    static constexpr underlying_type_t<E> to_int() {
-        return static_cast<underlying_type_t<E>>(Value);
-    }
-
-    template <underlying_type_t<E> Value>
-    static constexpr E from_int() {
-        return to_constant<E, Value>::value;
-    }
-
-    template <E Value>
-    static constexpr underlying_type_t<E> is_not_0() {
-        return static_cast<underlying_type_t<E>>(Value != from_int<0>());
-    }
+    using U = underlying_type_t<E>;
 
     /**
      * @brief Iterates over the range [Low, High] of enum values between Low and High.
@@ -17356,19 +17424,19 @@ struct enum_reflection {
      * 
      * @tparam Low The lower bound of the search range, inclusive.
      * @tparam High The upper bound of the search range, inclusive.
-     * @tparam Args Additional arguments to be passed through to Handler<E>::handle_constant
+     * @tparam Args Additional arguments to be passed through to Handler::handle_constant
      * @param last_value The last value processed in the iteration.
-     * @param args Additional arguments to be passed through to Handler<E>::handle_constant
-     * @return constexpr underlying_type_t<E> The result of the iteration.
+     * @param args Additional arguments to be passed through to Handler::handle_constant
+     * @return constexpr U The result of the iteration.
      */
-    template <E Low, E High, typename... Args>
-    static constexpr underlying_type_t<E> each_enum_range(underlying_type_t<E> last_value, Args... args) {
-        return to_int<High>() - to_int<Low>() <= 1
-            ? to_int<High>() == to_int<Low>()
-                ? Handler<E>::template handle_constant<Low>(last_value, args...)
-                : Handler<E>::template handle_constant<High>(Handler<E>::template handle_constant<Low>(last_value, args...), args...)
-            : each_enum_range<from_int<(to_int<Low>()+to_int<High>()) / 2 + 1>(), High>(
-                    each_enum_range<Low, from_int<(to_int<Low>()+to_int<High>()) / 2>()>(last_value, args...),
+    template <U Low, U High, typename... Args>
+    static constexpr U each_enum_range(U last_value, Args... args) {
+        return High - Low <= 1
+            ? High == Low
+                ? Handler::template handle_constant<Low>(last_value, args...)
+                : Handler::template handle_constant<High>(Handler::template handle_constant<Low>(last_value, args...), args...)
+            : each_enum_range<(Low + High) / 2 + 1, High>(
+                    each_enum_range<Low, (Low + High) / 2>(last_value, args...),
                     args...
               );
     }
@@ -17378,22 +17446,22 @@ struct enum_reflection {
      *
      * Recursively iterates the search space, looking for enums defined as multiple-of-2 
      * bitmasks. Each iteration, shifts bit to the right until it hits Low, then calls
-     * Handler<E>::handle_constant for each bitmask in ascending order.
+     * Handler::handle_constant for each bitmask in ascending order.
      * 
      * @tparam Low The lower bound of the search range, not inclusive
      * @tparam High The upper bound of the search range, inclusive.
-     * @tparam Args Additional arguments to be passed through to Handler<E>::handle_constant
+     * @tparam Args Additional arguments to be passed through to Handler::handle_constant
      * @param last_value The last value processed in the iteration.
-     * @param args Additional arguments to be passed through to Handler<E>::handle_constant
-     * @return constexpr underlying_type_t<E> The result of the iteration.
+     * @param args Additional arguments to be passed through to Handler::handle_constant
+     * @return constexpr U The result of the iteration.
      */
-    template <E Low, E High, typename... Args>
-    static constexpr underlying_type_t<E> each_mask_range(underlying_type_t<E> last_value, Args... args) {
+    template <U Low, U High, typename... Args>
+    static constexpr U each_mask_range(U last_value, Args... args) {
         // If Low shares any bits with Current Flag, or if High is less than/equal to Low (and High isn't negative because max-flag signed)
-        return (to_int<Low>() & to_int<High>()) || (to_int<High>() <= to_int<Low>() && to_int<High>() != high_bit)
+        return (Low & High) || (High <= Low && High != high_bit)
             ? last_value
-            : Handler<E>::template handle_constant<High>(
-                each_mask_range<Low, from_int<((to_int<High>() >> 1) & ~high_bit)>()>(last_value, args...),
+            : Handler::template handle_constant<High>(
+                each_mask_range<Low, ((High >> 1) & ~high_bit)>(last_value, args...),
                 args...
               );
     }
@@ -17406,93 +17474,94 @@ struct enum_reflection {
      * (each_mask_range<Value, high_bit>).
      * 
      * @tparam Value The maximum enum value to iterate up to.
-     * @tparam Args Additional arguments to be passed through to Handler<E>::handle_constant
-     * @param args Additional arguments to be passed through to Handler<E>::handle_constant
-     * @return constexpr underlying_type_t<E> The result of the iteration.
+     * @tparam Args Additional arguments to be passed through to Handler::handle_constant
+     * @param args Additional arguments to be passed through to Handler::handle_constant
+     * @return constexpr U The result of the iteration.
      */
-    template <E Value = FLECS_ENUM_MAX(E), typename... Args>
-    static constexpr underlying_type_t<E> each_enum(Args... args) {
-        return each_mask_range<Value, from_int<high_bit>()>(each_enum_range<from_int<0>(), Value>(0, args...), args...);
+    template <U Value = static_cast<U>(FLECS_ENUM_MAX(E)), typename... Args>
+    static constexpr U each_enum(Args... args) {
+        return each_mask_range<Value, high_bit>(each_enum_range<0, Value>(0, args...), args...);
     }
 
-    static const underlying_type_t<E> high_bit = static_cast<underlying_type_t<E>>(1) << (sizeof(underlying_type_t<E>) * 8 - 1);
+    static const U high_bit = static_cast<U>(1) << (sizeof(U) * 8 - 1);
 };
 
 /** Enumeration type data */
 template<typename E>
 struct enum_data_impl {
 private:
+    using U = underlying_type_t<E>;
+
     /**
      * @brief Handler struct for generating compile-time count of enum constants.
      */
-    template<typename Enum>
     struct reflection_count {
-        template <Enum Value, flecs::if_not_t< enum_constant_is_valid<Enum, Value>() > = 0>
-        static constexpr underlying_type_t<Enum> handle_constant(underlying_type_t<E> last_value) {
+        template <U Value, flecs::if_not_t< enum_constant_is_valid_wrap<E, Value>() > = 0>
+        static constexpr U handle_constant(U last_value) {
             return last_value;
         }
 
-        template <Enum Value, flecs::if_t< enum_constant_is_valid<Enum, Value>() > = 0>
-        static constexpr underlying_type_t<Enum> handle_constant(underlying_type_t<E> last_value) {
+        template <U Value, flecs::if_t< enum_constant_is_valid_wrap<E, Value>() > = 0>
+        static constexpr U handle_constant(U last_value) {
             return 1 + last_value;
         }
     };
+
 public:
     flecs::entity_t id;
     int min;
     int max;
     bool has_contiguous;
 	// If enum constants start not-sparse, contiguous_until will be the index of the first sparse value, or end of the constants array
-    underlying_type_t<E> contiguous_until;
+    U contiguous_until;
 	// Compile-time generated count of enum constants.
-    static constexpr unsigned int constants_size = enum_reflection<E, reflection_count>::template each_enum< enum_last<E>::value >();
+    static constexpr unsigned int constants_size = enum_reflection<E, reflection_count>::template each_enum< static_cast<U>(enum_last<E>::value) >();
     // Constants array is sized to the number of found-constants, or 1 (to avoid 0-sized array)
-    enum_constant_data<underlying_type_t<E>> constants[constants_size? constants_size: 1];
+    enum_constant_data<U> constants[constants_size? constants_size: 1];
 };
 
 /** Class that scans an enum for constants, extracts names & creates entities */
 template <typename E>
 struct enum_type {
 private:
+    using U = underlying_type_t<E>;
+
     /**
      * @brief Helper struct for filling enum_type's static `enum_data_impl<E>` member with reflection data.
      *
      * Because reflection occurs in-order, we can use current value/last value to determine continuity, and
      * use that as a lookup heuristic later on.
-     * 
-     * @tparam Enum The enum type.
      */
-    template <typename Enum>
     struct reflection_init {
-        template <Enum Value, flecs::if_not_t< enum_constant_is_valid<Enum, Value>() > = 0>
-        static underlying_type_t<Enum> handle_constant(underlying_type_t<Enum> last_value, flecs::world_t*) {
+        template <U Value, flecs::if_not_t< enum_constant_is_valid_wrap<E, Value>() > = 0>
+        static U handle_constant(U last_value, flecs::world_t*) {
             // Search for constant failed. Pass last valid value through.
             return last_value;
         }
 
-        template <Enum Value, flecs::if_t< enum_constant_is_valid<Enum, Value>() > = 0>
-        static underlying_type_t<Enum> handle_constant(underlying_type_t<Enum> last_value, flecs::world_t *world) {
+        template <U Value, flecs::if_t< enum_constant_is_valid_wrap<E, Value>() > = 0>
+        static U handle_constant(U last_value, flecs::world_t *world) {
             // Constant is valid, so fill reflection data.
-            auto v = enum_reflection<E, reflection_init>::template to_int<Value>();
-            const char *name = enum_constant_to_name<Enum, Value>();
+            auto v = Value;
+            const char *name = enum_constant_to_name<E, enum_cast(E, Value)>();
             
-            ++enum_type<Enum>::data.max; // Increment cursor as we build constants array.
+            ++enum_type<E>::data.max; // Increment cursor as we build constants array.
 
             // If the enum was previously contiguous, and continues to be through the current value...
-            if (enum_type<Enum>::data.has_contiguous && static_cast<underlying_type_t<Enum>>(enum_type<Enum>::data.max) == v && enum_type<Enum>::data.contiguous_until == v) {
-                ++enum_type<Enum>::data.contiguous_until;
+            if (enum_type<E>::data.has_contiguous && static_cast<U>(enum_type<E>::data.max) == v && enum_type<E>::data.contiguous_until == v) {
+                ++enum_type<E>::data.contiguous_until;
             }
             // else, if the enum was never contiguous and hasn't been set as not contiguous...
-            else if (!enum_type<Enum>::data.contiguous_until && enum_type<Enum>::data.has_contiguous) {
-                enum_type<Enum>::data.has_contiguous = false;
+            else if (!enum_type<E>::data.contiguous_until && enum_type<E>::data.has_contiguous) {
+                enum_type<E>::data.has_contiguous = false;
             }
 
-            ecs_assert(!(last_value > 0 && v < std::numeric_limits<underlying_type_t<Enum>>::min() + last_value), ECS_UNSUPPORTED,
+            ecs_assert(!(last_value > 0 && v < std::numeric_limits<U>::min() + last_value), ECS_UNSUPPORTED,
                 "Signed integer enums causes integer overflow when recording offset from high positive to"
                 " low negative. Consider using unsigned integers as underlying type.");
-            enum_type<Enum>::data.constants[enum_type<Enum>::data.max].offset = v - last_value;
-            enum_type<Enum>::data.constants[enum_type<Enum>::data.max].id = ecs_cpp_enum_constant_register(
-                world, enum_type<Enum>::data.id, 0, name, static_cast<int32_t>(v));
+            enum_type<E>::data.constants[enum_type<E>::data.max].offset = v - last_value;
+            enum_type<E>::data.constants[enum_type<E>::data.max].id = ecs_cpp_enum_constant_register(
+                world, enum_type<E>::data.id, 0, name, static_cast<int32_t>(v));
             return v;
         }
     };
@@ -17528,10 +17597,9 @@ public:
         data.id = id;
 
         // Generate reflection data
-        enum_reflection<E, reflection_init>::template each_enum< enum_last<E>::value >(world);
+        enum_reflection<E, reflection_init>::template each_enum< static_cast<U>(enum_last<E>::value) >(world);
         ecs_log_pop();
     }
-
 };
 
 template <typename E>
@@ -17550,6 +17618,8 @@ inline static void init_enum(flecs::world_t*, flecs::entity_t) { }
 /** Enumeration type data wrapper with world pointer */
 template <typename E>
 struct enum_data {
+    using U = underlying_type_t<E>;
+
     enum_data(flecs::world_t *world, _::enum_data_impl<E>& impl)
         : world_(world)
         , impl_(impl) { }
@@ -17561,7 +17631,7 @@ struct enum_data {
      * @return true If the value is a valid enum value.
      * @return false If the value is not a valid enum value.
      */
-    bool is_valid(underlying_type_t<E> value) {
+    bool is_valid(U value) {
         int index = index_by_value(value);
         if (index < 0) {
             return false;
@@ -17577,7 +17647,7 @@ struct enum_data {
      * @return false If the value is not valid.
      */
     bool is_valid(E value) {
-        return is_valid(static_cast<underlying_type_t<E>>(value));
+        return is_valid(static_cast<U>(value));
     }
 
     /**
@@ -17586,7 +17656,7 @@ struct enum_data {
      * @param value The enum value.
      * @return int The index of the enum value.
      */
-    int index_by_value(underlying_type_t<E> value) const {
+    int index_by_value(U value) const {
         if (!impl_.max) {
             return -1;
         }
@@ -17594,7 +17664,7 @@ struct enum_data {
         if (impl_.has_contiguous && value < impl_.contiguous_until && value >= 0) {
             return static_cast<int>(value);
         }
-        underlying_type_t<E> accumulator = impl_.contiguous_until? impl_.contiguous_until - 1: 0;
+        U accumulator = impl_.contiguous_until? impl_.contiguous_until - 1: 0;
         for (int i = static_cast<int>(impl_.contiguous_until); i <= impl_.max; ++i) {
             accumulator += impl_.constants[i].offset;
             if (accumulator == value) {
@@ -17611,7 +17681,7 @@ struct enum_data {
      * @return int The index of the enum value.
      */
     int index_by_value(E value) const {
-        return index_by_value(static_cast<underlying_type_t<E>>(value));
+        return index_by_value(static_cast<U>(value));
     }
 
     int first() const {
@@ -17627,7 +17697,7 @@ struct enum_data {
     }
 
     flecs::entity entity() const;
-    flecs::entity entity(underlying_type_t<E> value) const;
+    flecs::entity entity(U value) const;
     flecs::entity entity(E value) const;
 
     flecs::world_t *world_;
@@ -17886,6 +17956,10 @@ struct id {
     explicit id(flecs::world_t *world, flecs::id_t first, flecs::id_t second)
         : world_(world)
         , id_(ecs_pair(first, second)) { }
+
+    explicit id(flecs::world_t *world, const char *expr)
+        : world_(world)
+        , id_(ecs_id_from_str(world, expr)) { }
 
     explicit id(flecs::id_t first, flecs::id_t second)
         : world_(nullptr)
@@ -22487,6 +22561,8 @@ public:
 
     flecs::table table() const;
 
+    flecs::table other_table() const;
+
     flecs::table_range range() const;
 
     /** Access ctx.
@@ -25696,6 +25772,8 @@ private:
     void populate_self(const ecs_iter_t *iter, size_t index, T, Targs... comps) {
         fields_[index].ptr = ecs_field_w_size(iter, sizeof(A), 
             static_cast<int8_t>(index));
+        fields_[index].is_ref = false;
+        ecs_assert(iter->sources[index] == 0, ECS_INTERNAL_ERROR, NULL);
         populate_self(iter, index + 1, comps ...);
     }
 
@@ -25717,7 +25795,8 @@ struct each_field { };
 // Base class
 struct each_column_base {
     each_column_base(const _::field_ptr& field, size_t row) 
-        : field_(field), row_(row) { }
+        : field_(field), row_(row) {
+    }
 
 protected:
     const _::field_ptr& field_;
@@ -25813,7 +25892,6 @@ struct each_ref_field : public each_field<T> {
         }
     }
 };
-
 
 // Type that handles passing components to each callbacks
 template <typename Func, typename ... Components>
@@ -26530,7 +26608,8 @@ inline const char* type_name() {
     static const size_t len = ECS_FUNC_TYPE_LEN(const char*, type_name, ECS_FUNC_NAME);
     static char result[len + 1] = {};
     static const size_t front_len = ECS_FUNC_NAME_FRONT(const char*, type_name);
-    return ecs_cpp_get_type_name(result, ECS_FUNC_NAME, len, front_len);
+    static const char* cppTypeName = ecs_cpp_get_type_name(result, ECS_FUNC_NAME, len, front_len);
+    return cppTypeName;
 }
 #else
 #error "implicit component registration not supported"
@@ -26542,7 +26621,8 @@ template <typename T>
 inline const char* symbol_name() {
     static const size_t len = ECS_FUNC_TYPE_LEN(const char*, symbol_name, ECS_FUNC_NAME);
     static char result[len + 1] = {};
-    return ecs_cpp_get_symbol_name(result, type_name<T>(), len);
+    static const char* cppSymbolName = ecs_cpp_get_symbol_name(result, type_name<T>(), len);
+    return cppSymbolName;
 }
 
 template <> inline const char* symbol_name<uint8_t>() {
@@ -27501,9 +27581,13 @@ struct ref {
         return get();
     }
 
-    /** implicit conversion to bool.  return true if there is a valid T* being referred to **/
-    operator bool() {       
+    bool has() {
         return !!try_get();
+    }
+
+    /** implicit conversion to bool.  return true if there is a valid T* being referred to **/
+    operator bool() {
+        return has();
     }
 
     flecs::entity entity() const;
@@ -29517,6 +29601,15 @@ struct query_builder_i : term_builder_i<Base> {
         return *this;
     }
 
+    Base& with(const char *r, entity_t o) {
+        this->term();
+        *this->term_ = flecs::term().first(r).second(o);
+        if (this->term_->inout == EcsInOutDefault) {
+            this->inout_none();
+        }
+        return *this;
+    }
+
     template<typename First>
     Base& with(id_t o) {
         return this->with(_::type<First>::id(this->world_v()), o);
@@ -30275,6 +30368,12 @@ struct observer_builder_i : query_builder_i<Base, Components ...> {
     /** Invoke observer for anything that matches its query on creation */
     Base& yield_existing(bool value = true) {
         desc_->yield_existing = value;
+        return *this;
+    }
+
+    /** Set observer flags */
+    Base& observer_flags(ecs_flags32_t flags) {
+        desc_->flags_ |= flags;
         return *this;
     }
 
@@ -32360,6 +32459,10 @@ inline flecs::type iter::type() const {
 
 inline flecs::table iter::table() const {
     return flecs::table(iter_->real_world, iter_->table);
+}
+
+inline flecs::table iter::other_table() const {
+    return flecs::table(iter_->real_world, iter_->other_table);
 }
 
 inline flecs::table_range iter::range() const {

@@ -261,6 +261,99 @@ void World_entity_range_add_out_of_range_staged(void) {
     ecs_fini(world);
 }
 
+void World_entity_range_offset_0(void) {
+    ecs_world_t *world = ecs_mini();
+
+    const ecs_world_info_t *info = ecs_get_world_info(world);
+    test_assert(info != NULL);
+
+    ecs_set_entity_range(world, 0, 1000);
+
+    test_uint(info->min_id, ecs_get_max_id(world) + 1);
+    test_uint(info->max_id, 1000);
+
+    ecs_fini(world);
+}
+
+void World_entity_range_set_limit_to_lower(void) {
+    ecs_world_t *world = ecs_mini();
+
+    const ecs_world_info_t *info = ecs_get_world_info(world);
+    test_assert(info != NULL);
+
+    ecs_set_entity_range(world, 0, 2000);
+
+    test_uint(info->max_id, 2000);
+
+    ecs_set_entity_range(world, 0, 1000);
+
+    test_uint(info->max_id, 1000);
+
+    ecs_fini(world);
+}
+
+void World_entity_range_set_limit_to_lower_than_offset(void) {
+    ecs_world_t *world = ecs_mini();
+
+    const ecs_world_info_t *info = ecs_get_world_info(world);
+    test_assert(info != NULL);
+
+    ecs_set_entity_range(world, 2000, 3000);
+
+    test_uint(info->max_id, 3000);
+
+    ecs_set_entity_range(world, 0, 1000);
+
+    test_uint(info->max_id, 1000);
+
+    ecs_fini(world);
+}
+
+void World_entity_range_overlapping_new_id(void) {
+    install_test_abort();
+
+    ecs_world_t *world = ecs_mini();
+
+    const ecs_world_info_t *info = ecs_get_world_info(world);
+    test_assert(info != NULL);
+
+    ecs_set_entity_range(world, 2000, 3000);
+    test_uint(info->max_id, 3000);
+
+    ecs_entity_t e1 = ecs_new(world);
+    test_assert(e1 == 2000);
+
+    ecs_set_entity_range(world, 1999, 0);
+
+    ecs_entity_t e2 = ecs_new(world);
+    test_assert(e2 == 1999);
+
+    test_expect_abort();
+    ecs_new(world);
+}
+
+void World_entity_range_overlapping_new_bulk_id(void) {
+    install_test_abort();
+
+    ecs_world_t *world = ecs_mini();
+
+    ECS_COMPONENT(world, Position);
+
+    const ecs_world_info_t *info = ecs_get_world_info(world);
+    test_assert(info != NULL);
+
+    ecs_set_entity_range(world, 2000, 3000);
+    test_uint(info->max_id, 3000);
+
+    ecs_entity_t e1 = ecs_new(world);
+    test_assert(e1 == 2000);
+
+    ecs_set_entity_range(world, 1999, 0);
+
+    test_expect_abort();
+    ecs_bulk_new(world, Position, 2);
+}
+
 void World_get_tick(void) {
     ecs_world_t *world = ecs_init();
 
@@ -1415,7 +1508,6 @@ void World_get_type_info(void) {
     test_int(ti->size, ECS_SIZEOF(Position));
     test_int(ti->alignment, ECS_ALIGNOF(Position));
     test_uint(ti->component, ecs_id(Position));
-    test_assert(ti->world == world);
 
     ecs_fini(world);
 }
@@ -1432,7 +1524,6 @@ void World_get_type_info_after_delete_with(void) {
     test_int(ti->size, ECS_SIZEOF(Position));
     test_int(ti->alignment, ECS_ALIGNOF(Position));
     test_uint(ti->component, ecs_id(Position));
-    test_assert(ti->world == world);
 
     ecs_fini(world);
 }
@@ -1453,8 +1544,7 @@ void World_get_type_info_after_reuse(void) {
     test_int(ti->size, ECS_SIZEOF(Position));
     test_int(ti->alignment, ECS_ALIGNOF(Position));
     test_uint(ti->component, ecs_id(Position));
-    test_assert(ti->world == world);
-    
+
     ecs_fini(world);
 }
 
@@ -1608,6 +1698,59 @@ void World_get_entities(void) {
         count = entities.count;
         alive_count = entities.alive_count;
     }
+
+    ecs_fini(world);
+}
+
+static
+int post_frame_action_invoked = 0;
+
+static
+void post_frame_action(
+    ecs_world_t *world, 
+    void *ctx) 
+{
+    test_int(*(int*)ctx, 10);
+    post_frame_action_invoked ++;
+}
+
+void World_run_post_frame(void) {
+    ecs_world_t *world = ecs_mini();
+    
+    ecs_frame_begin(world, 0);
+
+    int ctx = 10;
+    ecs_run_post_frame(world, post_frame_action, &ctx);
+
+    test_int(post_frame_action_invoked, 0);
+    ecs_frame_end(world);
+    test_int(post_frame_action_invoked, 1);
+
+    ecs_fini(world);
+}
+
+void World_run_post_frame_outside_of_frame(void) {
+    install_test_abort();
+
+    ecs_world_t *world = ecs_mini();
+    
+    test_expect_abort();
+    int ctx = 10;
+    ecs_run_post_frame(world, post_frame_action, &ctx);
+}
+
+void World_get_flags(void) {
+    ecs_world_t *world = ecs_mini();
+
+    test_assert(!(ecs_world_get_flags(world) & EcsWorldFrameInProgress));
+
+    ecs_frame_begin(world, 0);
+
+    test_assert((ecs_world_get_flags(world) & EcsWorldFrameInProgress));
+
+    ecs_frame_end(world);
+
+    test_assert(!(ecs_world_get_flags(world) & EcsWorldFrameInProgress));
 
     ecs_fini(world);
 }
